@@ -88,7 +88,7 @@ final class KmpEntryDiscovery {
   ) {
     final kotlinEntry = _detectKotlinEntry(modulePath);
     final swiftEntry = _detectSwiftAppEntry(projectRoot, baseName);
-    if (swiftEntry != null && kotlinEntry == null) return swiftEntry;
+    if (swiftEntry != null) return swiftEntry;
     if (kotlinEntry != null) return kotlinEntry;
     return const ComposeEntryResult(KmpEntryKind.frameworkOnly);
   }

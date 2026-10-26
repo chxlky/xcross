@@ -373,6 +373,20 @@ kotlin {
       expect(project.swiftImports, {'SwiftUI', 'Shared'});
     });
 
+    test('prefers Swift host initialization over a Kotlin view controller', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")');
+      _framework(root, 'shared', baseName: 'Shared');
+      _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+      _swift(
+        root,
+        p.join('iosApp', 'App.swift'),
+        'import SwiftUI\nimport Shared\n@main struct Demo: App { var body: some Scene { WindowGroup { Text("Hi") } } }',
+      );
+
+      expect(session.detectKmpProject(root.path).entryKind, KmpEntryKind.swiftApp);
+    });
+
     test('detects committed Compose smoke examples', () {
       final compose = session.detectKmpProject(
         p.join(_repoRoot, 'examples', 'compose_app'),
