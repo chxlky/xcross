@@ -423,6 +423,31 @@ xcross compose run --watch   # press r to rebuild + reinstall + relaunch, q to q
 
 Rebuilds are dominated by the Kotlin/Native compile (~133s of a ~147s cycle on the Compose sample, since it is a whole-program AOT compile). xcross fingerprints the framework's inputs and compiler flags, so a build whose inputs did not change skips `konanc` entirely: **~145s → ~12s** on the sample.
 
+### Kotlin/Native cinterop on Linux
+
+On Linux x64, normal Gradle `cinterops.create(...)` declarations and `.def` files
+run as part of `xcross compose build`. xcross stages a patched Kotlin/Native home
+and enables Apple targets in Gradle's Kotlin plugin as well as the compiler.
+A temporary Java agent applies the existing host/toolchain patches in memory;
+installed Kotlin distributions and Gradle's dependency cache are not modified.
+This requires a JDK with `javac`, not a standalone JRE.
+
+The Gradle invocation uses a single-use daemon with configuration caching disabled
+to keep patched host decisions out of ordinary Gradle builds. This adds Gradle
+startup overhead on Linux; Kotlin/Native caches and framework fingerprints remain
+available. Existing project JVM settings and `JAVA_TOOL_OPTIONS` are retained.
+
+Headers and target-compatible native libraries must already exist at the paths
+configured by the project. This does not emulate macOS, run Xcode/CocoaPods, build
+SwiftPM dependencies automatically, or make Swift-only APIs importable. Such APIs
+still need an Objective-C-visible wrapper. Windows cinterop is not enabled by
+this change.
+
+A real compile/link smoke fixture is in
+`packages/xcross/test/fixtures/compose_cinterop`: with Gradle on `PATH`, run
+`xcross compose build --framework` there. It imports an Objective-C header from
+Kotlin through a conventional cinterop and builds `ComposeApp.framework`.
+
 ## Flutter plugins
 
 Swift Package Manager iOS plugins work on both Windows and Linux. Their native code is compiled against the extracted Darwin SDK into `Frameworks/libFlutterPluginsGenerated.dylib` and registered by the generated runner.
