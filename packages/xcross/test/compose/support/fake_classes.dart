@@ -27,6 +27,36 @@ import 'class_file_builder.dart';
 //  16  UTF8 "LineNumberTable"
 
 @internal
+Uint8List buildFakeInternalServerClass() {
+  final constantPool = <List<int>>[
+    cpUtf8('Code'),
+    cpUtf8('org/jetbrains/kotlin/konan/util/InternalServer'),
+    cpClass(2),
+    cpUtf8('isAvailable'),
+    cpUtf8('()Z'),
+    cpUtf8('java/lang/Object'),
+    cpClass(6),
+  ];
+  final originalCode = codeBody(
+    maxStack: 1,
+    maxLocals: 0,
+    code: [0x03, 0xAC], // ICONST_0, IRETURN
+  );
+  return Uint8List.fromList([
+    ...classFileHeader,
+    ...cpSection(constantPool),
+    ...u2(0x0021), // ACC_PUBLIC, ACC_SUPER
+    ...u2(3), // this_class
+    ...u2(7), // java/lang/Object
+    ...u2(0), // interfaces_count
+    ...u2(0), // fields_count
+    ...u2(1), // methods_count
+    ...member(nameIdx: 4, descIdx: 5, codeAttrBytes: codeAttr(originalCode)),
+    ...u2(0), // attributes_count
+  ]);
+}
+
+@internal
 Uint8List buildFakeHostManagerClass() =>
     _buildFakeHostManagerClass(cpLong(0, 42));
 

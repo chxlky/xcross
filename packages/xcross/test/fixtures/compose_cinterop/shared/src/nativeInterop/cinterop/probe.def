@@ -1,0 +1,4 @@
+language = Objective-C
+headers = probe.h
+headerFilter = probe.h
+package = probe

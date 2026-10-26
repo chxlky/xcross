@@ -208,6 +208,15 @@ void main() {
   // "<llvm package> not declared as dependency" once the compiler resolves
   // absoluteLlvmHome.
 
+  group('patchInternalServerClassBytes', () {
+    test('forces availability for isolated Linux IDE/native JVMs', () {
+      final patched = patchInternalServerClassBytes(
+        buildFakeInternalServerClass(),
+      );
+      expect(lastMethodCodeBody(patched), equals([iconst1, ireturn]));
+    });
+  });
+
   group('patchAppleConfigurablesImplClassBytes', () {
     test('returns non-null for class with getDependencies', () {
       expect(

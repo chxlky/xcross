@@ -4,10 +4,18 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/compose/build/gradle_cinterop_toolchain.dart';
 import 'package:xcross/src/shared/compose/build/process_invocation.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+
+@internal
+typedef PrepareGradleCinterop<T extends PlatformHostInterface> =
+    Future<PreparedGradleCinterop?> Function({
+      required KmpProject project,
+      required ComposeToolchain<T> toolchain,
+    });
 
 @internal
 typedef GradleRunChecked =
@@ -31,19 +39,30 @@ final class GradleKlibResult {
 
 @internal
 final class GradleKlibBuilder<T extends PlatformHostInterface> {
-  const GradleKlibBuilder(this.runner) : _runChecked = null;
+  GradleKlibBuilder(this.runner)
+    : _runChecked = null,
+      _prepareCinterop = GradleCinteropToolchain(runner).prepare;
 
-  const GradleKlibBuilder.withSeams(this.runner, {GradleRunChecked? runChecked})
-    : _runChecked = runChecked;
+  const GradleKlibBuilder.withSeams(
+    this.runner, {
+    GradleRunChecked? runChecked,
+    PrepareGradleCinterop<T>? prepareCinterop,
+  }) : _runChecked = runChecked,
+       _prepareCinterop = prepareCinterop;
 
   final ProcessRunner<T> runner;
   final GradleRunChecked? _runChecked;
+  final PrepareGradleCinterop<T>? _prepareCinterop;
 
   Future<GradleKlibResult> build({
     required KmpProject project,
     required ComposeToolchain<T> toolchain,
   }) async {
     final gradle = _gradleInvocation(project, toolchain);
+    final prepared = await _prepareCinterop?.call(
+      project: project,
+      toolchain: toolchain,
+    );
     final tmpDir = runner.host.fileSystem
         .directory(runner.host.paths.temporaryRoot)
         .createTempSync('xcross_deps_');
@@ -51,13 +70,14 @@ final class GradleKlibBuilder<T extends PlatformHostInterface> {
     final initScriptPath = p.join(tmpDir.path, 'dumpDeps.init.gradle.kts');
     final env = <String, String>{
       ...runner.effectiveEnvironment,
+      ...?prepared?.environment,
       if (toolchain.javaHome.isNotEmpty) 'JAVA_HOME': toolchain.javaHome,
       if (toolchain.konanCache.isNotEmpty)
         'KONAN_DATA_DIR': toolchain.konanCache,
       'XCROSS_DEPS_OUT': depsOutPath,
     };
     if (toolchain.javaHome.isNotEmpty) {
-      final parentPath = runner.effectiveEnvironment['PATH'] ?? '';
+      final parentPath = env['PATH'] ?? '';
       final javaBin = p.join(toolchain.javaHome, 'bin');
       env['PATH'] = runner.host.environment.joinPathList([
         javaBin,
@@ -66,13 +86,8 @@ final class GradleKlibBuilder<T extends PlatformHostInterface> {
     }
 
     try {
-      // One invocation: dumpIosDeps depends on compileKotlinIosArm64, so
-      // Gradle compiles the klib and dumps its dependencies in the same
-      // build. Two separate `--no-daemon` builds each paid Gradle's startup
-      // and configuration again (over a minute per build on a large project,
-      // and on every `compose run --watch` rebuild). The daemon stays allowed
-      // for the same reason; Gradle hands it this client's environment
-      // (XCROSS_DEPS_OUT, KONAN_DATA_DIR) on every build.
+      // Compile and dump dependencies together. Linux cinterop uses a single-use
+      // daemon so its host patches cannot leak into normal builds.
       await runner.host.fileSystem
           .file(initScriptPath)
           .writeAsString(
@@ -85,6 +100,7 @@ final class GradleKlibBuilder<T extends PlatformHostInterface> {
           ':${project.moduleName}:dumpIosDeps',
           '-Pkotlin.native.enableKlibsCrossCompilation=true',
           ...toolchain.target.gradleArguments(toolchain.kotlinHome),
+          ...?prepared?.arguments,
           '-Pxcross.depsOut=$depsOutPath',
           '--init-script',
           initScriptPath,
@@ -216,10 +232,14 @@ allprojects {
       if (line.isEmpty) continue;
       final normalized = p.normalize(line);
       if (!_isKlib(normalized)) continue;
+      final canonical = runner.host.fileSystem
+          .file(normalized)
+          .resolveSymbolicLinksSync();
       final isToolchainKlib =
           p.equals(normalized, kotlinRoot) ||
           p.isWithin(kotlinRoot, normalized) ||
-          _isDistributionKlib(normalized);
+          _isDistributionKlib(normalized) ||
+          _isDistributionKlib(canonical);
       if (isToolchainKlib) {
         continue;
       }

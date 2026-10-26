@@ -8,6 +8,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/compose/build/gradle_cinterop_toolchain.dart';
 import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
@@ -22,6 +23,50 @@ void main() {
     session = createComposeTestSession();
   });
   tearDown(() => session.dispose());
+
+  test('passes isolated cinterop toolchain settings to Gradle', () async {
+    final fixture =
+        ComposeFixture.create(
+            session,
+            moduleName: 'shared',
+            target: fixtureIPhoneTargetFor(session.hosts.linuxX64),
+          )
+          ..createWrapper()
+          ..createModuleKlib();
+    addTearDown(fixture.dispose);
+    await GradleKlibBuilder.withSeams(
+      fixture.toolchain.runner,
+      prepareCinterop: ({required project, required toolchain}) async =>
+          const PreparedGradleCinterop(
+            [
+              '--no-daemon',
+              '--no-configuration-cache',
+              '-Pkotlin.native.home=/prepared',
+            ],
+            {
+              'JAVA_TOOL_OPTIONS': '-javaagent:/prepared/host-agent.jar',
+              'KONAN_USE_INTERNAL_SERVER': '1',
+            },
+          ),
+      runChecked:
+          (executable, arguments, {workingDirectory, environment}) async {
+            expect(
+              arguments,
+              containsAll([
+                '--no-daemon',
+                '--no-configuration-cache',
+                '-Pkotlin.native.home=/prepared',
+              ]),
+            );
+            expect(
+              environment!['JAVA_TOOL_OPTIONS'],
+              '-javaagent:/prepared/host-agent.jar',
+            );
+            expect(environment['KONAN_USE_INTERNAL_SERVER'], '1');
+            File(environment['XCROSS_DEPS_OUT']!).writeAsStringSync('');
+          },
+    ).build(project: fixture.project, toolchain: fixture.toolchain);
+  });
   test('compiles simulator Gradle klib and only simulator resources', () async {
     final fixture =
         ComposeFixture.create(
@@ -129,6 +174,8 @@ void main() {
       File(
         p.join(foreignPlatformKlib.path, 'default', 'manifest'),
       ).createSync(recursive: true);
+      final linkedPlatform = Link(p.join(fixture.root, 'staged-platform'))
+        ..createSync(foreignPlatformKlib.path);
       final prefixConfusion = Directory('${fixture.kotlinHome}_other')
         ..createSync();
       final siblingKlib = Directory(
@@ -171,6 +218,7 @@ void main() {
                     externalKlib.path,
                     platformKlib.path,
                     foreignPlatformKlib.path,
+                    linkedPlatform.path,
                     siblingKlib.path,
                     p.join(fixture.root, 'missing.klib'),
                     p.join(fixture.root, 'not-klib.jar'),

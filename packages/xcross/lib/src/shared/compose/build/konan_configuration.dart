@@ -215,7 +215,7 @@ final class KonanConfiguration<T extends PlatformHostInterface> {
     // Bump when the staged shim contents change: the fingerprint is what
     // decides whether an already-prepared toolchain root is reused, so a
     // stale root would keep serving the previous shim scripts.
-    addString('direct-java-apple-toolchain-v2');
+    addString('direct-java-apple-toolchain-v3');
     for (final file in toolchain.host.shimFingerprintFiles(
       _runningExecutable ?? toolchain.host.runningExecutable,
     )) {
@@ -338,7 +338,7 @@ final class KonanConfiguration<T extends PlatformHostInterface> {
     // xcross apple-toolchain/SDK shim is target-agnostic, so reuse it for
     // every Apple target to keep those constructors happy.
     for (final target in _appleKonanTargets) {
-      properties['targetSysRoot.$target'] = sdk;
+      properties['targetSysRoot.$target'] = _iosSdkForTarget(sdk, target);
       properties['targetToolchain.$host-$target'] = appleToolchain;
     }
     properties['linker.$host-${toolchain.target.konanTarget}'] =
@@ -353,6 +353,28 @@ final class KonanConfiguration<T extends PlatformHostInterface> {
     // compiler only ever targets ios_arm64, so it is the whole list.
     properties['cacheableTargets.$host'] = toolchain.target.konanTarget;
     return properties;
+  }
+
+  String _iosSdkForTarget(String fallback, String target) {
+    final platform = switch (target) {
+      'ios_arm64' => 'iPhoneOS',
+      'ios_x64' || 'ios_simulator_arm64' => 'iPhoneSimulator',
+      _ => null,
+    };
+    if (platform == null) return fallback;
+    final platforms = p.dirname(p.dirname(p.dirname(p.dirname(fallback))));
+    final directory = runner.host.fileSystem.directory(
+      p.join(platforms, '$platform.platform', 'Developer', 'SDKs'),
+    );
+    if (!directory.existsSync()) return fallback;
+    final sdks =
+        directory
+            .listSync()
+            .whereType<Directory>()
+            .where((entry) => entry.path.endsWith('.sdk'))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+    return sdks.isEmpty ? fallback : _slash(sdks.last.path);
   }
 
   Future<void> _defaultPatchCompilerJar(File jar) async {

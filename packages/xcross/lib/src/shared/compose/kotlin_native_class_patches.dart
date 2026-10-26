@@ -43,6 +43,18 @@ Uint8List patchHostManagerClassBytes(Uint8List classBytes) {
   return cf.serialize();
 }
 
+/// Avoid Xcode discovery in isolated IDE Gradle/native JVMs without shell env.
+@internal
+Uint8List patchInternalServerClassBytes(Uint8List classBytes) {
+  final cf = KotlinClassFile.parse(classBytes);
+  cf.replaceMethodCode(
+    'isAvailable',
+    '()Z',
+    Uint8List.fromList([_iconst1, _ireturn]),
+  );
+  return cf.serialize();
+}
+
 /// Patches raw [objcExportClassEntry] bytes by replacing every method whose
 /// name contains `generateWorkaroundForSwiftSR10177` and whose descriptor
 /// ends with `)V` with a single `return` instruction.
